@@ -30,7 +30,8 @@ pip install mcp requests httpx python-dotenv
 2. `.env` 파일 생성 및 API 키 설정:
 
 ```
-MANDIANT_API_KEY=your_api_key_here
+MANDIANT_KEY_ID=your_api_key_here
+MANDIANT_KEY_SECRET=your_api_key_here
 ```
 
 ## 4. 서버 테스트
@@ -64,7 +65,8 @@ python mandiant_server.py
         "/실제/경로/mandiant_server.py"
       ],
       "env": {
-        "MANDIANT_API_KEY": "your_api_key_here"
+        "MANDIANT_KEY_ID":"your_api_key_here",
+        "MANDIANT_KEY_SECRET":"your_api_key_here"
       }
     }
   }
