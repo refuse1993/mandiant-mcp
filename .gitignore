@@ -1,0 +1,16 @@
+# 환경 변수
+.env
+
+# 의존성
+/node_modules
+
+# 로그
+*.log
+
+# IDE 설정
+.vscode/
+.idea/
+
+# OS 생성 파일
+.DS_Store
+Thumbs.db
