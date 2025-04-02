@@ -77,7 +77,7 @@ async def get_threat_actors(ctx: Context) -> str:
             return f"Error fetching threat actors: {error_msg}"
         
         data = response.json()
-        actors = data.get("actors", [])
+        actors = data.get("threat-actors", [])
         result = "# Mandiant 위협 액터 목록\n\n"
         
         for actor in actors:
@@ -520,8 +520,11 @@ async def get_recent_reports(ctx: Context, limit: int = 5) -> str:
     client = ctx.request_context.lifespan_context.api_client
     
     try:
-        # 올바른 엔드포인트 사용: /v4/reports
-        response = await client.get(f"/v4/reports?limit={min(limit, 10)}")
+        # API 문서에 따라 올바른 엔드포인트와 파라미터 사용
+        response = await client.get(f"/v4/reports", params={
+            "limit": min(limit, 1000),
+            "offset": 0
+        })
         print(f"API Response: {response.status_code}", file=sys.stderr)
         
         if not response.is_success:
@@ -530,19 +533,41 @@ async def get_recent_reports(ctx: Context, limit: int = 5) -> str:
             return f"Error fetching reports: {error_msg}"
         
         data = response.json()
-        reports = data.get("reports", [])
+        
+        # 디버깅을 위한 전체 응답 출력
+        print(f"API Response Data: {data}", file=sys.stderr)
+        
+        # API 문서에 따르면 결과는 'objects' 키에 있음
+        reports = data.get('objects', [])
         
         result = "# Recent Mandiant Intelligence Reports\n\n"
         if not reports:
             return result + "No reports found."
         
         for report in reports:
+            # API 문서에 나온 응답 형식에 맞게 필드 이름 수정
             result += f"## {report.get('title')}\n"
-            result += f"**ID:** {report.get('id')}\n"
-            result += f"**Published:** {report.get('published_date')}\n"
-            if report.get('summary'):
-                result += f"\n{report.get('summary')[:300]}...\n\n"
+            result += f"**ID:** {report.get('report_id')}\n"
+            result += f"**Type:** {report.get('report_type')}\n"
+            result += f"**Published:** {report.get('publish_date')}\n"
+            
+            # 태그 정보 추가 (있는 경우)
+            if 'threat_scape' in report and report['threat_scape']:
+                result += f"**Categories:** {', '.join(report['threat_scape'])}\n"
+            
+            # 보고서 링크 추가 (있는 경우)
+            if 'report_link' in report:
+                result += f"**Link:** {report['report_link']}\n"
+            
             result += "\n"
+        
+        # 총 보고서 수 및 페이지네이션 정보 표시 (있는 경우)
+        if 'total_count' in data:
+            result += f"\n총 {data['total_count']}개의 보고서 중 {len(reports)}개 표시\n"
+        
+        # 다음 페이지 존재 여부 표시
+        if 'next' in data and data['next']:
+            result += "\n더 많은 보고서가 있습니다. 더 많은 결과를 보려면 limit 파라미터를 늘려주세요.\n"
         
         return result
     except Exception as e:
@@ -565,17 +590,68 @@ async def get_report_details(report_id: str, ctx: Context) -> str:
         
         report = response.json()
         
+        # 응답 구조 확인을 위한 로깅
+        print(f"Report Structure Keys: {report.keys()}", file=sys.stderr)
+        
+        # 보고서 유형 확인
+        report_type = report.get('report_type', 'Unknown')
+        print(f"Report Type: {report_type}", file=sys.stderr)
+        
         result = f"# {report.get('title', 'Unknown Report')}\n\n"
         result += f"**ID:** {report.get('id')}\n"
-        result += f"**Published:** {report.get('published_date', 'Unknown')}\n\n"
+        result += f"**Report Type:** {report_type}\n"
+        result += f"**Published:** {report.get('publish_date', report.get('published_date', 'Unknown'))}\n\n"
         
+        # 다양한 필드 처리
         if report.get('executive_summary'):
             result += f"## Executive Summary\n\n{report.get('executive_summary')}\n\n"
         
-        if report.get('summary'):
-            result += f"## Summary\n\n{report.get('summary')}\n\n"
+        # 다양한 보고서 유형에 따른 필드 처리
+        if report_type == "Actor Profile":
+            if report.get('description'):
+                result += f"## Description\n\n{report.get('description')}\n\n"
+                
+            # 관련 악성코드 정보 표시
+            if 'files' in report and report['files']:
+                result += "## Associated Malware\n\n"
+                for malware in report['files'][:5]:  # 처음 5개만 표시
+                    result += f"- **{malware.get('name', 'Unnamed')}**\n"
+                    result += f"  - Type: {malware.get('malwareFamily', 'Unknown')}\n"
+                    result += f"  - SHA256: {malware.get('sha256', 'N/A')}\n"
+                
+                if len(report['files']) > 5:
+                    result += f"\n*...and {len(report['files']) - 5} more malware samples*\n\n"
+                    
+        elif report_type == "Event Coverage/Implication":
+            if 'networks' in report and report['networks']:
+                result += "## Associated Networks\n\n"
+                for network in report['networks'][:5]:
+                    result += f"- **{network.get('domain', 'Unknown Domain')}**\n"
+                    result += f"  - Actor: {network.get('actor', 'Unknown')}\n"
+                    result += f"  - Type: {network.get('identifier', 'Unknown')}\n"
+                
+                if len(report['networks']) > 5:
+                    result += f"\n*...and {len(report['networks']) - 5} more network indicators*\n\n"
         
-        # 관련 지표 섹션
+        # 태그 정보 표시
+        if 'tags' in report and report['tags']:
+            result += "## Tags\n\n"
+            
+            # 액터 정보
+            if 'actors' in report['tags'] and report['tags']['actors']:
+                result += "### Threat Actors\n"
+                for actor in report['tags']['actors']:
+                    result += f"- {actor.get('name', 'Unknown')}\n"
+                result += "\n"
+            
+            # 산업 정보
+            if 'affected_industries' in report['tags'] and report['tags']['affected_industries']:
+                result += "### Affected Industries\n"
+                for industry in report['tags']['affected_industries']:
+                    result += f"- {industry}\n"
+                result += "\n"
+        
+        # 추가 정보 및 관련 지표 섹션
         result += "## Additional Information\n\n"
         result += f"**Associated Indicators:** Try `get_report_indicators(\"{report_id}\")`\n"
         
@@ -585,12 +661,22 @@ async def get_report_details(report_id: str, ctx: Context) -> str:
         return f"Error fetching report details: {str(e)}"
 
 @mcp.tool()
-async def get_report_indicators(report_id: str, ctx: Context) -> str:
+async def get_report_indicators(ctx: Context, report_id: str) -> str:
     """특정 보고서와 관련된 지표(IOC)를 가져옵니다."""
     client = ctx.request_context.lifespan_context.api_client
     
     try:
-        response = await client.get(f"/v4/report/{report_id}/indicators")
+        # API 문서에 따른 올바른 엔드포인트
+        response = await client.get(
+            f"/v4/report/{report_id}/indicators",
+            params={
+                "include_actors": "true",
+                "include_malware": "true", 
+                "include_threat_rating": "true",
+                "include_category": "true"
+            }
+        )
+        
         print(f"API Response: {response.status_code}", file=sys.stderr)
         
         if not response.is_success:
@@ -599,36 +685,55 @@ async def get_report_indicators(report_id: str, ctx: Context) -> str:
             return f"Error fetching report indicators: {error_msg}"
         
         data = response.json()
-        indicators = data.get("indicators", [])
         
         result = f"# Indicators for Report {report_id}\n\n"
+        
+        # 보고서 정보
+        result += f"## Report Information\n"
+        result += f"**Title:** {data.get('title', 'N/A')}\n"
+        result += f"**Type:** {data.get('report_type', 'N/A')}\n"
+        result += f"**Published:** {data.get('publish_date', 'N/A')}\n\n"
+        
+        # 지표 정보
+        indicators = data.get('indicators', [])
+        
         if not indicators:
             return result + "No indicators found for this report."
         
-# 지표 타입별로 분류
+        result += f"## Indicators ({data.get('indicator_count', {}).get('total', len(indicators))})\n\n"
+        
+        # 지표 타입별로 분류
         indicator_by_type = {}
+        
         for indicator in indicators:
             indicator_type = indicator.get('type', 'unknown')
             if indicator_type not in indicator_by_type:
                 indicator_by_type[indicator_type] = []
             indicator_by_type[indicator_type].append(indicator)
         
-        # 타입별로 출력
+        # 타입별로 지표 표시
         for indicator_type, type_indicators in indicator_by_type.items():
-            result += f"## {indicator_type.upper()}\n\n"
-            for indicator in type_indicators[:10]:  # 각 타입당 최대 10개만 표시
-                result += f"- **{indicator.get('value')}**\n"
-                if indicator.get('last_seen'):
-                    result += f"  - Last seen: {indicator.get('last_seen')}\n"
+            result += f"### {indicator_type.upper()} Indicators ({len(type_indicators)})\n\n"
             
-            if len(type_indicators) > 10:
-                result += f"\n*...and {len(type_indicators) - 10} more {indicator_type} indicators*\n"
-            result += "\n"
+            for indicator in type_indicators:
+                result += f"- **Value:** {indicator.get('value', 'N/A')}\n"
+                
+                if 'mscore' in indicator:
+                    result += f"  **Mandiant Score:** {indicator.get('mscore')}\n"
+                
+                if 'first_seen' in indicator:
+                    result += f"  **First Seen:** {indicator.get('first_seen')}\n"
+                
+                if 'last_seen' in indicator:
+                    result += f"  **Last Seen:** {indicator.get('last_seen')}\n"
+                
+                result += "\n"
         
         return result
     except Exception as e:
         print(f"Exception in get_report_indicators: {str(e)}", file=sys.stderr)
         return f"Error fetching report indicators: {str(e)}"
+
 
 # 지표(Indicator) 분석 도구
 @mcp.tool()
@@ -700,17 +805,23 @@ async def analyze_ioc(indicator: str, ctx: Context) -> str:
 
 # 검색 도구
 @mcp.tool()
-async def search_threats(query: str, ctx: Context) -> str:
+async def search_threats(ctx: Context, query: str, limit: int = 50) -> str:
     """Mandiant 인텔리전스에서 위협을 검색합니다."""
     client = ctx.request_context.lifespan_context.api_client
     
     try:
-        payload = {
-            "query": query,
-            "limit": 10
-        }
+        # API 문서에 따른 올바른 검색 엔드포인트 사용
+        response = await client.post(
+            "/v4/search",
+            json={
+                "search": query,
+                "limit": min(limit, 1000),
+                "type": "all",
+                "sort_by": ["relevance"],
+                "sort_order": "desc"
+            }
+        )
         
-        response = await client.post("/v4/search", json=payload)
         print(f"API Response: {response.status_code}", file=sys.stderr)
         
         if not response.is_success:
@@ -719,37 +830,86 @@ async def search_threats(query: str, ctx: Context) -> str:
             return f"Error searching threats: {error_msg}"
         
         data = response.json()
-        results = data.get("results", [])
         
-        if not results:
-            return f"No results found for query: '{query}'"
+        # 검색 결과
+        objects = data.get('objects', [])
         
-        output = f"# Search Results for '{query}'\n\n"
+        result = f"# Search Results for '{query}'\n\n"
         
-        # 결과 타입별로 분류
-        results_by_type = {}
-        for result in results:
-            result_type = result.get('type', 'unknown')
-            if result_type not in results_by_type:
-                results_by_type[result_type] = []
-            results_by_type[result_type].append(result)
+        if not objects:
+            return result + "No results found."
         
-        # 타입별로 출력
-        for result_type, type_results in results_by_type.items():
-            output += f"## {result_type.capitalize()}\n\n"
-            for result in type_results:
-                output += f"- **{result.get('name', 'Unnamed')}**\n"
-                if result.get('description'):
-                    output += f"  - {result.get('description')[:200]}...\n"
-                if result.get('id'):
-                    output += f"  - ID: {result.get('id')}\n"
-            output += "\n"
+        # 결과 타입별로 분류 및 표시
+        actor_count = 0
+        malware_count = 0
+        report_count = 0
+        vulnerability_count = 0
+        indicator_count = 0
         
-        return output
+        # 결과 카운트
+        for obj in objects:
+            obj_type = obj.get('type', '')
+            if 'actor' in obj_type:
+                actor_count += 1
+            elif 'malware' in obj_type:
+                malware_count += 1
+            elif 'report' in obj_type:
+                report_count += 1
+            elif 'vulnerability' in obj_type:
+                vulnerability_count += 1
+            elif 'indicator' in obj_type:
+                indicator_count += 1
+        
+        result += "## Summary\n"
+        result += f"- **Threat Actors:** {actor_count}\n"
+        result += f"- **Malware:** {malware_count}\n"
+        result += f"- **Reports:** {report_count}\n"
+        result += f"- **Vulnerabilities:** {vulnerability_count}\n"
+        result += f"- **Indicators:** {indicator_count}\n\n"
+        
+        # 상세 결과 표시
+        for obj in objects:
+            obj_type = obj.get('type', 'unknown')
+            
+            if 'actor' in obj_type:
+                result += f"## Threat Actor: {obj.get('name', 'N/A')}\n"
+                result += f"**ID:** {obj.get('id', 'N/A')}\n"
+                if 'description' in obj:
+                    result += f"\n{obj.get('description')[:300]}...\n\n"
+            
+            elif 'malware' in obj_type:
+                result += f"## Malware: {obj.get('name', 'N/A')}\n"
+                result += f"**ID:** {obj.get('id', 'N/A')}\n"
+                if 'description' in obj:
+                    result += f"\n{obj.get('description')[:300]}...\n\n"
+            
+            elif 'report' in obj_type:
+                result += f"## Report: {obj.get('name', 'N/A')}\n"
+                result += f"**ID:** {obj.get('id', 'N/A')}\n"
+                result += f"**Type:** {obj.get('report_type', 'N/A')}\n"
+                if 'description' in obj:
+                    result += f"\n{obj.get('description')[:300]}...\n\n"
+            
+            elif 'vulnerability' in obj_type:
+                result += f"## Vulnerability: {obj.get('name', 'N/A')}\n"
+                result += f"**ID:** {obj.get('id', 'N/A')}\n"
+                result += f"**CVE:** {obj.get('cve_id', 'N/A')}\n"
+                if 'description' in obj:
+                    result += f"\n{obj.get('description')[:300]}...\n\n"
+            
+            else:
+                result += f"## {obj_type}: {obj.get('name', obj.get('value', 'N/A'))}\n"
+                result += f"**ID:** {obj.get('id', 'N/A')}\n\n"
+        
+        # 페이지네이션 정보
+        if 'next' in data and data['next']:
+            result += "\n더 많은 결과가 있습니다. 더 많은 결과를 보려면 limit 파라미터를 늘려주세요.\n"
+        
+        return result
     except Exception as e:
         print(f"Exception in search_threats: {str(e)}", file=sys.stderr)
         return f"Error searching threats: {str(e)}"
-
+    
 # 프롬프트: 위협 조사
 @mcp.prompt()
 def investigate_threat(threat_name: str) -> str:
