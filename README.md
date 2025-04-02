@@ -22,6 +22,7 @@ source mandiant-mcp-env/bin/activate
 
 # 필요한 패키지 설치
 pip install mcp requests httpx python-dotenv
+pip install -r requirements.txt
 ```
 
 ## 3. 프로젝트 파일 준비
