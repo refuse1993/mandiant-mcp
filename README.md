@@ -89,6 +89,41 @@ Claude Desktop이 다시 시작되면 입력창 오른쪽 하단에 해머 아�
 
 ## 8. 사용 예시
 
+// ... existing code ...
+
+## MCP 사용 가능한 함수 목록
+
+### 위협 정보 조회
+- `get_actor(actor_id)`: 특정 위협 액터 정보 조회
+- `search_actors(query)`: 위협 액터 검색
+- `get_malware(malware_id)`: 악성코드 정보 조회
+- `search_malware(query)`: 악성코드 검색
+
+### 취약점 분석
+- `get_vulnerability(cve_id)`: CVE 취약점 상세 정보 조회
+- `search_vulnerabilities(query)`: 취약점 검색
+- `get_exploits(cve_id)`: 취약점 관련 익스플로잇 정보
+
+### IoC 분석
+- `analyze_ip(ip_address)`: IP 주소 분석
+- `analyze_domain(domain)`: 도메인 분석
+- `analyze_file_hash(hash)`: 파일 해시 분석
+- `search_indicators(query)`: IoC 검색
+
+### 보고서 및 인텔리전스
+- `get_report(report_id)`: 특정 보고서 조회
+- `search_reports(query)`: 보고서 검색
+- `get_latest_intelligence()`: 최신 위협 인텔리전스 조회
+
+### 복합 분석 도구
+- `investigate_threat(threat_id)`: 위협 종합 분석
+- `assess_vulnerability(cve_id)`: 취약점 종합 평가
+- `analyze_campaign(campaign_id)`: 공격 캠페인 분석
+
+각 함수는 Claude와의 대화에서 직접 호출하거나, 관련 질문을 통해 간접적으로 사용할 수 있습니다.
+
+// ... existing code ...
+
 Claude에게 다음과 같은 질문을 해보세요:
 
 - "최근 발견된 취약점에 대해 알려줄래?"
